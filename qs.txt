@@ -1,0 +1,58 @@
+Hi hocam, I have a few questions about the communication protocol and the reporting system.
+
+Should the server (agent) assume all client commands are single lines terminated by a newline character ("\n")?
+
+When a command sent from the customer do we send the answer via the socket to customer or we just print the result to stdout?
+
+ After the REQUEST command, the text says "...The client will be notified with the number of the assigned tool when the assignment is done..." do we just send the number of the assigned tool by socket and print the "Customer %d with share %d is assigned to the tool %d" part to the stdout?
+
+For the multi-line REPORT, how does the client (customer) know the response is finished? Should the agent send a unique delimiter (like "REPORT END\n") after the last line?
+
+When a REQUEST command causes the client to be queued, should the agent send any response at that moment, or just send the "assigned" notification later when a tool becomes free?
+
+Should the agent send any response to a REST command if the user is already resting or waiting?
+
+Should the agent send any response to QUIT, or just close the socket?
+
+
+Picture of ONUR TOLGA ŞEHİTOĞLU
+In reply to DOĞUKAN ÖZTÜRK
+Re: Clarification about the communication protocol
+by ONUR TOLGA ŞEHİTOĞLU - Saturday, 8 November 2025, 4:56 PM
+1. Yes. All commands are short single line commands with a newline. 
+2. Answers are sent to the client via socket
+
+3. You report the assignment with the sentence template you quoted.
+
+4. Customer does not need to know if it is finished. Reporting does not take time and client directly sends socket input to client stdout.
+
+5. Assignment is reported after the tool is assigned. Let me think about if we need a "you have been queued" message.
+
+6. No error handling ie required. You can send a simple error if you like . That helps in development.
+
+7. No mesage is needed
+
+
+
+Hey,
+
+It says in the text:
+
+
+> When a new customer arrives, or an existing customer comes back from rest, and all tools are occupied, the tool having the customer with the maximum current usage is considered as a candidate. If candidate customer has a smaller share, customer is inserted in the wait queue. Otherwise, if the candidate has used the tool for t < q, new customer is inserted into the wait queue. Otherwise, the candidate is asked out of the tool and inserted into the wait queue. The new customer gets the tool.
+
+Why does the candidate is removed from the tool and inserted in the wait queue when it has a smaller share? Doesn't smaller share mean it should have more right to use the tool?
+
+Let's say Customer A is using the only machine (k=1) and Customer B comes back from the rest. This text says if Customer A has 5 minutes of workout (share) cumulatively and the Customer B has 10 minutes of share, Customer A should be removed as per my understading if we choose "q" as 3 mins for example.
+Picture of ONUR TOLGA ŞEHİTOĞLU
+In reply to BAHADIR AYDIN
+Re: clarification about new customer arrive logic
+by ONUR TOLGA ŞEHİTOĞLU - Friday, 7 November 2025, 10:14 AM
+"If candidate customer has a smaller share, customer is inserted in the wait queue. "
+
+This sentence is not clear. It's better be:
+
+"If candidate customer has has a smaller share, the new customer is inserted in the wait queue."
+
+
+
