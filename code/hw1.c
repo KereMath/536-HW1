@@ -730,8 +730,8 @@ void tool_process(int tool_id) {
 
         pthread_mutex_unlock(&shm->global_mutex);
 
-        // Sleep for 50ms before next check (reduced from 100ms for better timing)
-        usleep(50000);
+        // Sleep for 10ms before next check (high precision for accurate timing)
+        usleep(10000);
     }
 }
 
