@@ -277,13 +277,12 @@ int allocate_customer(int customer_id) {
     c->customer_id = customer_id;
     c->state = CUSTOMER_STATE_RESTING;
 
-    // FIX: Calculate initial share as average INCLUDING new customer
-    // Formula: new_share = total_share / (total_customers + 1)
-    // This ensures all customers have equal share when new customer joins
+    // SPEC: New customer gets CURRENT average share
+    // "assigned to the average share of all customers in the gym"
     if (shm->total_customers > 0) {
-        c->share = shm->total_share / (shm->total_customers + 1.0);
+        c->share = shm->total_share / (double)shm->total_customers;  // ✅ DOĞRU
     } else {
-        c->share = 0.0;  // First customer starts with 0
+        c->share = 0.0;  // First customer gets 0
     }
 
     c->request_duration = 0;
