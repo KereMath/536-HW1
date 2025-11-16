@@ -8,6 +8,12 @@
  * - Average share calculation (divide by total_customers + 1)
  * - assign_tool_to_customer waiting check (use state instead of heap_index)
  * - handle_request state transition for RESTING customers
+ * 
+ * MEMORY LEAK FIXES:
+ * - Condition variable properly destroyed after thread join
+ * - Thread join order fixed (notify thread joins before cond destroy)
+ * - Notify thread safe exit with is_allocated check
+ * - Final event (leaves) sent before thread exits
  */
 
 #include <stdio.h>
@@ -322,6 +328,9 @@ void deallocate_customer(int customer_idx) {
 
     shm->total_customers--;
     shm->total_share -= c->share;
+
+    // MEMORY LEAK FIX: Don't destroy condition variable here!
+    // It will be destroyed in agent_process AFTER notify thread joins
 
     // Clear customer data
     c->is_allocated = 0;
@@ -783,27 +792,18 @@ void *agent_notify_thread(void *arg) {
     while (1) {
         pthread_mutex_lock(&shm->global_mutex);
 
-        // Check if customer is still allocated before waiting
-        if (!c->is_allocated) {
-            pthread_mutex_unlock(&shm->global_mutex);
-            break;
-        }
-
+        // Wait for event or deallocation
         while (!c->event_pending && c->is_allocated) {
             pthread_cond_wait(&c->agent_cond, &shm->global_mutex);
         }
 
-        // Double-check after waking up
-        if (!c->is_allocated) {
-            pthread_mutex_unlock(&shm->global_mutex);
-            break;
-        }
-
+        // Process pending event (even if customer was deallocated)
         if (c->event_pending) {
             int event_type = c->event_type;
             int tool_id = c->event_tool_id;
             double share = c->share;
             int customer_id = c->customer_id;
+            int is_allocated = c->is_allocated;
             c->event_pending = 0;
 
             pthread_mutex_unlock(&shm->global_mutex);
@@ -825,8 +825,15 @@ void *agent_notify_thread(void *arg) {
 
             // Send message to socket (ignore errors if connection closed)
             send(ctx->socket_fd, buffer, strlen(buffer), MSG_NOSIGNAL);
+
+            // Exit if customer was deallocated
+            if (!is_allocated) {
+                break;
+            }
         } else {
+            // No event pending and customer deallocated - exit
             pthread_mutex_unlock(&shm->global_mutex);
+            break;
         }
     }
 
@@ -868,13 +875,20 @@ void agent_process(int client_socket) {
         assign_next_from_queue(tool_id);
     }
     
+    // Deallocate customer (but don't destroy condition variable yet!)
     deallocate_customer(customer_idx);
-    // Wake up notify thread so it can see is_allocated = 0
+    
+    // Signal notify thread to wake up and see is_allocated = 0
     pthread_cond_signal(&c->agent_cond);
     pthread_mutex_unlock(&shm->global_mutex);
 
-    // Wait for notify thread to exit gracefully
+    // Wait for notify thread to exit BEFORE destroying condition variable
     pthread_join(notify_thread, NULL);
+    
+    // NOW it's safe to destroy the condition variable
+    pthread_mutex_lock(&shm->global_mutex);
+    pthread_cond_destroy(&c->agent_cond);
+    pthread_mutex_unlock(&shm->global_mutex);
 
     close(client_socket);
 }
