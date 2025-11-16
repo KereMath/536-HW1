@@ -147,6 +147,17 @@ class GymClient:
         except:
             self.connected = False
 
+    def send_raw(self, data: bytes):
+    """Send raw bytes without encoding"""
+    if not self.connected:
+        return
+    try:
+        self.sock.send(data)
+    except Exception as e:
+        self.connected = False
+        if not silent:
+            print(f"{RED}[C{self.client_id}] Send raw failed: {e}{RESET}")        
+
     def get_responses(self) -> List[str]:
         """Get all responses (thread-safe)"""
         with self.lock:
