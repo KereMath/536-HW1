@@ -24,11 +24,10 @@
 #include <limits.h>
 
 
-
 extern int heap_insert(int nodeindex);
 extern int heap_pop(void);
 extern int heap_delete(int nodeindex);
-extern int *heap_size_ptr;  
+extern int *heap_size_ptr;
 
 struct Node {
     double key;
@@ -41,8 +40,7 @@ extern int *HEAP_ARRAY;
 #define heap_size (*heap_size_ptr)
 
 
-
-#define MAX_CUSTOMERS 1024  
+#define MAX_CUSTOMERS 1024
 #define MAX_TOOLS 100
 #define BUFFER_SIZE 4096
 #define NIL -1
@@ -118,11 +116,11 @@ typedef struct {
     int Q;
     long long start_time;
 
-    int server_should_exit;  
+    int server_should_exit;
 
     struct Node heap_nodes[MAX_CUSTOMERS];
     int heap_array[MAX_CUSTOMERS];
-    int heap_size_value;  
+    int heap_size_value;
 } SharedMemory;
 
 typedef struct {
@@ -131,21 +129,22 @@ typedef struct {
 } AgentContext;
 
 
-
 static SharedMemory *shm = NULL;
 static int server_socket = -1;
 static volatile int should_exit = 0;
-static char socket_path[256] = {0};  
+static char socket_path[256] = {0};
 
 
-long long get_current_time_ms(void) {
+long long get_current_time_ms(void)
+{
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
 }
 
 
-void setup_shared_memory(int q, int Q, int k) {
+void setup_shared_memory(int q, int Q, int k)
+{
     size_t shm_size = sizeof(SharedMemory);
     shm = (SharedMemory *)mmap(NULL, shm_size,
                                PROT_READ | PROT_WRITE,
@@ -166,7 +165,7 @@ void setup_shared_memory(int q, int Q, int k) {
     shm->server_should_exit = 0;
 
     shm->free_customer_count = MAX_CUSTOMERS;
-    for (int i = 0; i < MAX_CUSTOMERS; i++) {
+    for (int i = 0; i < MAX_CUSTOMERS; ++i) {
         shm->free_customer_slots[i] = i;
         shm->customers[i].is_allocated = 0;
         shm->customers[i].customer_id = -1;
@@ -175,7 +174,7 @@ void setup_shared_memory(int q, int Q, int k) {
         shm->customers[i].state = CUSTOMER_STATE_DELETED;
     }
 
-    for (int i = 0; i < k; i++) {
+    for (int i = 0; i < k; ++i) {
         shm->tools[i].tool_id = i;
         shm->tools[i].current_user = -1;
         shm->tools[i].total_usage = 0;
@@ -194,28 +193,26 @@ void setup_shared_memory(int q, int Q, int k) {
     pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
     pthread_cond_init(&shm->new_customer_cond, &cond_attr);
 
-    for (int i = 0; i < k; i++) {
+    for (int i = 0; i < k; ++i)
         pthread_cond_init(&shm->tools[i].tool_cond, &cond_attr);
-    }
 
     pthread_condattr_destroy(&cond_attr);
 
     GLB = shm->heap_nodes;
     HEAP_ARRAY = shm->heap_array;
-    heap_size_ptr = &shm->heap_size_value;  
+    heap_size_ptr = &shm->heap_size_value;
     shm->heap_size_value = 0;
 
-    for (int i = 0; i < MAX_CUSTOMERS; i++) {
+    for (int i = 0; i < MAX_CUSTOMERS; ++i) {
         shm->heap_nodes[i].key = 0.0;
         shm->heap_nodes[i].heap_index = NIL;
     }
 }
 
 
-int allocate_customer(int customer_id) {
-    if (shm->free_customer_count <= 0) {
-        return -1;
-    }
+int allocate_customer(int customer_id)
+{
+    if (shm->free_customer_count <= 0) return -1;
 
     int idx = shm->free_customer_slots[--shm->free_customer_count];
     Customer *c = &shm->customers[idx];
@@ -224,11 +221,10 @@ int allocate_customer(int customer_id) {
     c->customer_id = customer_id;
     c->state = CUSTOMER_STATE_RESTING;
 
-    if (shm->total_customers > 0) {
+    if (shm->total_customers > 0)
         c->share = shm->total_share / (double)shm->total_customers;
-    } else {
-        c->share = 0.0;  
-    }
+    else
+        c->share = 0.0;
 
     c->request_duration = 0;
     c->remaining_duration = 0;
@@ -252,7 +248,8 @@ int allocate_customer(int customer_id) {
     return idx;
 }
 
-void deallocate_customer(int customer_idx) {
+void deallocate_customer(int customer_idx)
+{
     Customer *c = &shm->customers[customer_idx];
 
     if (!c->is_allocated) return;
@@ -283,14 +280,16 @@ void deallocate_customer(int customer_idx) {
 }
 
 
-int find_free_tool(void) {
+int find_free_tool(void)
+{
     int best_tool = -1;
     long long min_usage = LLONG_MAX;
 
-    for (int i = 0; i < shm->num_tools; i++) {
+    for (int i = 0; i < shm->num_tools; ++i) {
         if (shm->tools[i].current_user == -1) {
             if (shm->tools[i].total_usage < min_usage ||
-                (shm->tools[i].total_usage == min_usage && (best_tool == -1 || i < best_tool))) {
+                (shm->tools[i].total_usage == min_usage &&
+                 (best_tool == -1 || i < best_tool))) {
                 min_usage = shm->tools[i].total_usage;
                 best_tool = i;
             }
@@ -300,15 +299,16 @@ int find_free_tool(void) {
     return best_tool;
 }
 
-int find_preemption_candidate(double new_share) {
+int find_preemption_candidate(double new_share)
+{
     int candidate = -1;
     int max_usage = 0;
 
-    for (int i = 0; i < shm->num_tools; i++) {
+    for (int i = 0; i < shm->num_tools; ++i) {
         int user_idx = shm->tools[i].current_user;
         if (user_idx != -1) {
             int usage = shm->tools[i].current_usage;
-            if (usage > max_usage || 
+            if (usage > max_usage ||
                 (usage == max_usage && (candidate == -1 || i < candidate))) {
                 max_usage = usage;
                 candidate = i;
@@ -321,27 +321,23 @@ int find_preemption_candidate(double new_share) {
     int user_idx = shm->tools[candidate].current_user;
     Customer *c = &shm->customers[user_idx];
 
-    if (c->share < new_share) {
-        return -1;
-    }
-
-    if (shm->tools[candidate].current_usage < shm->q) {
-        return -1;
-    }
+    if (c->share < new_share) return -1;
+    if (shm->tools[candidate].current_usage < shm->q) return -1;
 
     return candidate;
 }
 
-int find_max_share_tool_above_q(void) {
+int find_max_share_tool_above_q(void)
+{
     int max_tool = -1;
     double max_share = -1.0;
 
-    for (int i = 0; i < shm->num_tools; i++) {
+    for (int i = 0; i < shm->num_tools; ++i) {
         int user_idx = shm->tools[i].current_user;
         if (user_idx != -1) {
             ToolInfo *t = &shm->tools[i];
             Customer *c = &shm->customers[user_idx];
-            
+
             if (t->current_usage >= shm->q) {
                 if (c->share > max_share ||
                     (c->share == max_share && (max_tool == -1 || i < max_tool))) {
@@ -355,7 +351,8 @@ int find_max_share_tool_above_q(void) {
     return max_tool;
 }
 
-void assign_tool_to_customer(int customer_idx, int tool_id) {
+void assign_tool_to_customer(int customer_idx, int tool_id)
+{
     Customer *c = &shm->customers[customer_idx];
     ToolInfo *t = &shm->tools[tool_id];
 
@@ -384,7 +381,8 @@ void assign_tool_to_customer(int customer_idx, int tool_id) {
     fflush(stdout);
 }
 
-void remove_customer_from_tool(int customer_idx, EventType event) {
+void remove_customer_from_tool(int customer_idx, EventType event)
+{
     Customer *c = &shm->customers[customer_idx];
     if (c->current_tool == -1) return;
 
@@ -415,7 +413,8 @@ void remove_customer_from_tool(int customer_idx, EventType event) {
     pthread_cond_signal(&c->agent_cond);
 }
 
-void assign_next_from_queue(int tool_id) {
+void assign_next_from_queue(int tool_id)
+{
     if (heap_size <= 0) return;
 
     int next_idx = heap_pop();
@@ -425,7 +424,8 @@ void assign_next_from_queue(int tool_id) {
 }
 
 
-void handle_request(int customer_idx, int duration) {
+void handle_request(int customer_idx, int duration)
+{
     pthread_mutex_lock(&shm->global_mutex);
 
     Customer *c = &shm->customers[customer_idx];
@@ -465,17 +465,17 @@ void handle_request(int customer_idx, int duration) {
             GLB[customer_idx].key = c->share;
             heap_insert(customer_idx);
             shm->waiting_count++;
-            
+
             if (heap_size > 0) {
                 int min_waiter_idx = HEAP_ARRAY[0];
                 if (min_waiter_idx >= 0 && min_waiter_idx < MAX_CUSTOMERS) {
                     Customer *min_waiter = &shm->customers[min_waiter_idx];
-                    
+
                     int max_tool = find_max_share_tool_above_q();
                     if (max_tool != -1) {
                         int max_user = shm->tools[max_tool].current_user;
                         Customer *max_customer = &shm->customers[max_user];
-                        
+
                         if (min_waiter->share < max_customer->share) {
                             pthread_cond_signal(&shm->tools[max_tool].tool_cond);
                         }
@@ -490,7 +490,8 @@ void handle_request(int customer_idx, int duration) {
     pthread_mutex_unlock(&shm->global_mutex);
 }
 
-void handle_rest(int customer_idx) {
+void handle_rest(int customer_idx)
+{
     pthread_mutex_lock(&shm->global_mutex);
 
     Customer *c = &shm->customers[customer_idx];
@@ -511,33 +512,35 @@ void handle_rest(int customer_idx) {
         c->state = CUSTOMER_STATE_RESTING;
         shm->resting_customers++;
     } else if (c->state == CUSTOMER_STATE_RESTING) {
+        /* nothing */
     }
 
     pthread_mutex_unlock(&shm->global_mutex);
 }
 
-void handle_report(int socket_fd) {
+void handle_report(int socket_fd)
+{
     pthread_mutex_lock(&shm->global_mutex);
 
     char buffer[BUFFER_SIZE * 10];
     int offset = 0;
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "k: %d, customers: %d waiting, %d resting, %d in total\n",
-                      shm->num_tools, shm->waiting_count,
-                      shm->resting_customers, shm->total_customers);
+                       "k: %d, customers: %d waiting, %d resting, %d in total\n",
+                       shm->num_tools, shm->waiting_count,
+                       shm->resting_customers, shm->total_customers);
 
     double avg_share = (shm->total_customers > 0) ?
                        (shm->total_share / shm->total_customers) : 0.0;
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "average share: %.2f\n", avg_share);
+                       "average share: %.2f\n", avg_share);
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "waiting list:\n");
+                       "waiting list:\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "customer   duration  share\n");
+                       "customer   duration  share\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "---------------------------\n");
+                       "---------------------------\n");
 
     long long now = get_current_time_ms();
 
@@ -545,7 +548,7 @@ void handle_report(int socket_fd) {
     WaitEntry wait_list[MAX_CUSTOMERS];
     int wait_count = 0;
 
-    for (int i = 0; i < MAX_CUSTOMERS; i++) {
+    for (int i = 0; i < MAX_CUSTOMERS; ++i) {
         Customer *c = &shm->customers[i];
         if (c->is_allocated && c->state == CUSTOMER_STATE_WAITING) {
             wait_list[wait_count].id = c->customer_id;
@@ -555,8 +558,8 @@ void handle_report(int socket_fd) {
         }
     }
 
-    for (int i = 0; i < wait_count - 1; i++) {
-        for (int j = i + 1; j < wait_count; j++) {
+    for (int i = 0; i < wait_count - 1; ++i) {
+        for (int j = i + 1; j < wait_count; ++j) {
             if (wait_list[j].share < wait_list[i].share) {
                 WaitEntry tmp = wait_list[i];
                 wait_list[i] = wait_list[j];
@@ -565,38 +568,38 @@ void handle_report(int socket_fd) {
         }
     }
 
-    for (int i = 0; i < wait_count; i++) {
+    for (int i = 0; i < wait_count; ++i) {
         offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                          "%-12d %10d %12d\n",
-                          wait_list[i].id, wait_list[i].duration, wait_list[i].share);
+                           "%-12d %10d %12d\n",
+                           wait_list[i].id, wait_list[i].duration, wait_list[i].share);
     }
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "\nTools:\n");
+                       "\nTools:\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "id   totaluse currentuser share duration\n");
+                       "id   totaluse currentuser share duration\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                      "--------------\n");
+                       "--------------\n");
 
-    for (int i = 0; i < shm->num_tools; i++) {
+    for (int i = 0; i < shm->num_tools; ++i) {
         ToolInfo *t = &shm->tools[i];
         if (t->current_user == -1) {
             offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                              "%-5d %12d FREE\n", 
-                              i, (int)t->total_usage);
+                               "%-5d %12d FREE\n",
+                               i, (int)t->total_usage);
         } else {
             Customer *c = &shm->customers[t->current_user];
-            
+
             long long now_tool = get_current_time_ms();
             int current = (int)(now_tool - t->session_start);
-            
+
             offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                              "%-5d %12d %-12d %10d %12d\n",
-                              i, 
-                              (int)(t->total_usage + current),  
-                              c->customer_id,
-                              (int)c->share,
-                              c->remaining_duration);  
+                               "%-5d %12d %-12d %10d %12d\n",
+                               i,
+                               (int)(t->total_usage + current),
+                               c->customer_id,
+                               (int)c->share,
+                               c->remaining_duration);
         }
     }
 
@@ -606,12 +609,11 @@ void handle_report(int socket_fd) {
 }
 
 
-void tool_process(int tool_id) {
-    if (server_socket >= 0) {
-        close(server_socket);
-    }
+void tool_process(int tool_id)
+{
+    if (server_socket >= 0) close(server_socket);
 
-    while (1) {
+    for (;;) {
         pthread_mutex_lock(&shm->global_mutex);
 
         if (shm->server_should_exit) {
@@ -683,7 +685,8 @@ void tool_process(int tool_id) {
 }
 
 
-void *agent_socket_thread(void *arg) {
+void *agent_socket_thread(void *arg)
+{
     AgentContext *ctx = (AgentContext *)arg;
     char buffer[BUFFER_SIZE];
 
@@ -691,9 +694,7 @@ void *agent_socket_thread(void *arg) {
         memset(buffer, 0, sizeof(buffer));
         int n = recv(ctx->socket_fd, buffer, sizeof(buffer) - 1, 0);
 
-        if (n <= 0) {
-            break;
-        }
+        if (n <= 0) break;
 
         char *cmd = strtok(buffer, " \r\n");
         if (!cmd) continue;
@@ -702,9 +703,7 @@ void *agent_socket_thread(void *arg) {
             char *duration_str = strtok(NULL, " \r\n");
             if (duration_str) {
                 int duration = atoi(duration_str);
-                if (duration > 0) {
-                    handle_request(ctx->customer_idx, duration);
-                }
+                if (duration > 0) handle_request(ctx->customer_idx, duration);
             }
         } else if (strcmp(cmd, "REST") == 0) {
             handle_rest(ctx->customer_idx);
@@ -718,7 +717,8 @@ void *agent_socket_thread(void *arg) {
     return NULL;
 }
 
-void *agent_notify_thread(void *arg) {
+void *agent_notify_thread(void *arg)
+{
     AgentContext *ctx = (AgentContext *)arg;
     Customer *c = &shm->customers[ctx->customer_idx];
     char buffer[BUFFER_SIZE];
@@ -726,9 +726,8 @@ void *agent_notify_thread(void *arg) {
     while (1) {
         pthread_mutex_lock(&shm->global_mutex);
 
-        while (!c->event_pending && c->is_allocated) {
+        while (!c->event_pending && c->is_allocated)
             pthread_cond_wait(&c->agent_cond, &shm->global_mutex);
-        }
 
         if (!c->is_allocated) {
             pthread_mutex_unlock(&shm->global_mutex);
@@ -746,22 +745,20 @@ void *agent_notify_thread(void *arg) {
 
             if (event_type == EVENT_TOOL_ASSIGNED) {
                 snprintf(buffer, sizeof(buffer),
-                    "Customer %d with share %d is assigned to the tool %d.\n",
-                    customer_id, share, tool_id);
+                         "Customer %d with share %d is assigned to the tool %d.\n",
+                         customer_id, share, tool_id);
             } else if (event_type == EVENT_TOOL_REMOVED) {
                 snprintf(buffer, sizeof(buffer),
-                    "Customer %d with share %d is removed from the tool %d.\n",
-                    customer_id, share, tool_id);
+                         "Customer %d with share %d is removed from the tool %d.\n",
+                         customer_id, share, tool_id);
             } else if (event_type == EVENT_TOOL_COMPLETED) {
                 snprintf(buffer, sizeof(buffer),
-                    "Customer %d with share %d leaves the tool %d.\n",
-                    customer_id, share, tool_id);
+                         "Customer %d with share %d leaves the tool %d.\n",
+                         customer_id, share, tool_id);
             }
 
             ssize_t sent = send(ctx->socket_fd, buffer, strlen(buffer), MSG_NOSIGNAL);
-            if (sent < 0) {
-                break;
-            }
+            if (sent < 0) break;
         } else {
             pthread_mutex_unlock(&shm->global_mutex);
             break;
@@ -771,7 +768,8 @@ void *agent_notify_thread(void *arg) {
     return NULL;
 }
 
-void agent_process(int client_socket) {
+void agent_process(int client_socket)
+{
     pthread_mutex_lock(&shm->global_mutex);
     int customer_idx = allocate_customer(getpid());
     pthread_mutex_unlock(&shm->global_mutex);
@@ -793,19 +791,19 @@ void agent_process(int client_socket) {
 
     pthread_mutex_lock(&shm->global_mutex);
     Customer *c = &shm->customers[customer_idx];
-    
+
     if (c->state == CUSTOMER_STATE_USING && c->current_tool != -1) {
         int tool_id = c->current_tool;
         remove_customer_from_tool(customer_idx, EVENT_TOOL_COMPLETED);
         assign_next_from_queue(tool_id);
     }
-    
+
     c->is_allocated = 0;
     pthread_cond_signal(&c->agent_cond);
     pthread_mutex_unlock(&shm->global_mutex);
-    
+
     pthread_join(notify_thread, NULL);
-    
+
     pthread_mutex_lock(&shm->global_mutex);
     pthread_cond_destroy(&c->agent_cond);
     deallocate_customer(customer_idx);
@@ -815,7 +813,8 @@ void agent_process(int client_socket) {
 }
 
 
-int create_server_socket(const char *conn_str) {
+int create_server_socket(const char *conn_str)
+{
     int sock;
 
     if (conn_str[0] == '@') {
@@ -828,10 +827,10 @@ int create_server_socket(const char *conn_str) {
         struct sockaddr_un addr;
         memset(&addr, 0, sizeof(addr));
         addr.sun_family = AF_UNIX;
-        
+
         const char *path = conn_str + 1;
         strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
-        
+
         strncpy(socket_path, path, sizeof(socket_path) - 1);
 
         unlink(addr.sun_path);
@@ -842,7 +841,7 @@ int create_server_socket(const char *conn_str) {
         }
 
         printf("Server listening on Unix socket: %s\n", addr.sun_path);
-    } 
+    }
     else if (strchr(conn_str, ':')) {
         sock = socket(AF_INET, SOCK_STREAM, 0);
         if (sock < 0) {
@@ -872,9 +871,8 @@ int create_server_socket(const char *conn_str) {
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
 
-        if (inet_pton(AF_INET, ip, &addr.sin_addr) <= 0) {
+        if (inet_pton(AF_INET, ip, &addr.sin_addr) <= 0)
             addr.sin_addr.s_addr = INADDR_ANY;
-        }
 
         if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
             perror("bind");
@@ -899,26 +897,24 @@ int create_server_socket(const char *conn_str) {
     return sock;
 }
 
-void signal_handler(int sig) {
+void signal_handler(int sig)
+{
     (void)sig;
     should_exit = 1;
-    
+
     if (shm) {
         pthread_mutex_lock(&shm->global_mutex);
         shm->server_should_exit = 1;
         pthread_cond_broadcast(&shm->new_customer_cond);
         pthread_mutex_unlock(&shm->global_mutex);
     }
-    
-    if (server_socket != -1) {
-        close(server_socket);
-    }
-    if (socket_path[0] != '\0') {
-        unlink(socket_path);
-    }
+
+    if (server_socket != -1) close(server_socket);
+    if (socket_path[0] != '\0') unlink(socket_path);
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     if (argc != 5) {
         fprintf(stderr, "Usage: %s conn q Q k\n", argv[0]);
         fprintf(stderr, "  conn: @/path/to/socket (Unix) or IP:port (TCP)\n");
@@ -945,7 +941,7 @@ int main(int argc, char *argv[]) {
     setup_shared_memory(q, Q, k);
     server_socket = create_server_socket(conn_str);
 
-    for (int i = 0; i < k; i++) {
+    for (int i = 0; i < k; ++i) {
         pid_t pid = fork();
         if (pid == 0) {
             tool_process(i);
@@ -958,8 +954,8 @@ int main(int argc, char *argv[]) {
         socklen_t addr_len = sizeof(client_addr);
 
         int client_socket = accept(server_socket,
-                                  (struct sockaddr *)&client_addr,
-                                  &addr_len);
+                                   (struct sockaddr *)&client_addr,
+                                   &addr_len);
 
         if (client_socket < 0) {
             if (errno == EINTR) continue;
@@ -978,16 +974,14 @@ int main(int argc, char *argv[]) {
     }
 
     close(server_socket);
-    if (socket_path[0] != '\0') {
-        unlink(socket_path);
-    }
+    if (socket_path[0] != '\0') unlink(socket_path);
 
     while (wait(NULL) > 0);
 
     if (shm) {
         pthread_mutex_destroy(&shm->global_mutex);
         pthread_cond_destroy(&shm->new_customer_cond);
-        for (int i = 0; i < shm->num_tools; i++) {
+        for (int i = 0; i < shm->num_tools; ++i) {
             pthread_cond_destroy(&shm->tools[i].tool_cond);
         }
         munmap(shm, sizeof(SharedMemory));
