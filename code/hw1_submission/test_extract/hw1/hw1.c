@@ -518,29 +518,28 @@ void handle_rest(int customer_idx)
     pthread_mutex_unlock(&shm->global_mutex);
 }
 
-void handle_report(int socket_fd)
-{
+void handle_report(int socket_fd) {
     pthread_mutex_lock(&shm->global_mutex);
 
     char buffer[BUFFER_SIZE * 10];
     int offset = 0;
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "k: %d, customers: %d waiting, %d resting, %d in total\n",
-                       shm->num_tools, shm->waiting_count,
-                       shm->resting_customers, shm->total_customers);
+                      "k: %d, customers: %d waiting, %d resting, %d in total\n",
+                      shm->num_tools, shm->waiting_count,
+                      shm->resting_customers, shm->total_customers);
 
     double avg_share = (shm->total_customers > 0) ?
                        (shm->total_share / shm->total_customers) : 0.0;
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "average share: %.2f\n", avg_share);
+                      "average share: %.2f\n", avg_share);
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "waiting list:\n");
+                      "waiting list:\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "customer   duration  share\n");
+                      "customer   duration  share\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "---------------------------\n");
+                      "---------------------------\n");
 
     long long now = get_current_time_ms();
 
@@ -548,7 +547,7 @@ void handle_report(int socket_fd)
     WaitEntry wait_list[MAX_CUSTOMERS];
     int wait_count = 0;
 
-    for (int i = 0; i < MAX_CUSTOMERS; ++i) {
+    for (int i = 0; i < MAX_CUSTOMERS; i++) {
         Customer *c = &shm->customers[i];
         if (c->is_allocated && c->state == CUSTOMER_STATE_WAITING) {
             wait_list[wait_count].id = c->customer_id;
@@ -558,8 +557,8 @@ void handle_report(int socket_fd)
         }
     }
 
-    for (int i = 0; i < wait_count - 1; ++i) {
-        for (int j = i + 1; j < wait_count; ++j) {
+    for (int i = 0; i < wait_count - 1; i++) {
+        for (int j = i + 1; j < wait_count; j++) {
             if (wait_list[j].share < wait_list[i].share) {
                 WaitEntry tmp = wait_list[i];
                 wait_list[i] = wait_list[j];
@@ -568,38 +567,41 @@ void handle_report(int socket_fd)
         }
     }
 
-    for (int i = 0; i < wait_count; ++i) {
+    for (int i = 0; i < wait_count; i++) {
         offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                           "%-12d %10d %12d\n",
-                           wait_list[i].id, wait_list[i].duration, wait_list[i].share);
+                          "%-12d %10d %12d\n",
+                          wait_list[i].id, wait_list[i].duration, wait_list[i].share);
     }
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "\nTools:\n");
+                      "\nTools:\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "id   totaluse currentuser share duration\n");
+                      "id   totaluse currentuser share duration\n");
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "--------------\n");
+                      "--------------\n");
 
-    for (int i = 0; i < shm->num_tools; ++i) {
+    for (int i = 0; i < shm->num_tools; i++) {
         ToolInfo *t = &shm->tools[i];
         if (t->current_user == -1) {
             offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                               "%-5d %12d FREE\n",
-                               i, (int)t->total_usage);
+                              "%-5d %12d FREE\n",
+                              i, (int)t->total_usage);
         } else {
             Customer *c = &shm->customers[t->current_user];
 
             long long now_tool = get_current_time_ms();
             int current = (int)(now_tool - t->session_start);
 
+            int duration_left = shm->q - current;
+            if (duration_left < 0) duration_left = 0;
+
             offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                               "%-5d %12d %-12d %10d %12d\n",
-                               i,
-                               (int)(t->total_usage + current),
-                               c->customer_id,
-                               (int)c->share,
-                               c->remaining_duration);
+                              "%-5d %12d %-12d %10d %12d\n",
+                              i,
+                              (int)(t->total_usage + current),
+                              c->customer_id,
+                              (int)c->share,
+                              duration_left);
         }
     }
 
@@ -607,8 +609,6 @@ void handle_report(int socket_fd)
 
     send(socket_fd, buffer, offset, 0);
 }
-
-
 void tool_process(int tool_id)
 {
     if (server_socket >= 0) close(server_socket);
